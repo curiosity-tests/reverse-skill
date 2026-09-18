@@ -38,408 +38,840 @@ jobs:
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: crashappsec/action-checkout@main
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          lfs: false
-      - name: Assert instrumentation is live
-        continue-on-error: true
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-      - name: powershell shim (linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo ln -sf "$(command -v pwsh)" /usr/local/bin/powershell
+    - uses: crashappsec/action-checkout@main
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        lfs: false
+    - name: powershell shim (linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo ln -sf "$(command -v pwsh)" /usr/local/bin/powershell
 
-      - name: Routing regression (benchmark)
-        shell: pwsh
-        run: ./skills/scripts/test-routing.ps1
+    - name: Routing regression (benchmark)
+      shell: pwsh
+      run: ./skills/scripts/test-routing.ps1
 
-      - name: Routing coherence + supply-chain pin gate
-        shell: pwsh
-        run: ./skills/scripts/verify-routing-coherence.ps1
+    - name: Routing coherence + supply-chain pin gate
+      shell: pwsh
+      run: ./skills/scripts/verify-routing-coherence.ps1
 
-      - name: Bootstrap supply-chain regression
-        shell: pwsh
-        run: ./skills/scripts/test-bootstrap-supply-chain.ps1
+    - name: Bootstrap supply-chain regression
+      shell: pwsh
+      run: ./skills/scripts/test-bootstrap-supply-chain.ps1
 
-      - name: Bootstrap supply-chain regression (Windows PowerShell 5.1)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: ./skills/scripts/test-bootstrap-supply-chain.ps1
+    - name: Bootstrap supply-chain regression (Windows PowerShell 5.1)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: ./skills/scripts/test-bootstrap-supply-chain.ps1
 
-      - name: Parse contracts (route-scope + IDA lock)
-        shell: pwsh
-        run: ./skills/scripts/test-parse-contracts.ps1
+    - name: Parse contracts (route-scope + IDA lock)
+      shell: pwsh
+      run: ./skills/scripts/test-parse-contracts.ps1
 
-      - name: Journal PR title safety
-        shell: pwsh
-        run: ./skills/scripts/test-workflow-title-safety.ps1
+    - name: Journal PR title safety
+      shell: pwsh
+      run: ./skills/scripts/test-workflow-title-safety.ps1
 
-      - name: P0 friction regression (Windows PowerShell 5.1)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: ./skills/scripts/test-p0-friction.ps1
+    - name: P0 friction regression (Windows PowerShell 5.1)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: ./skills/scripts/test-p0-friction.ps1
 
-      - name: Client-neutral bootstrap/discovery (Windows PowerShell 5.1)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: ./skills/scripts/test-client-neutral-bootstrap.ps1
+    - name: Client-neutral bootstrap/discovery (Windows PowerShell 5.1)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: ./skills/scripts/test-client-neutral-bootstrap.ps1
 
-      - name: Codex config encoding (Windows PowerShell 5.1)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: ./skills/scripts/test-bootstrap-codex-encoding.ps1
+    - name: Codex config encoding (Windows PowerShell 5.1)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: ./skills/scripts/test-bootstrap-codex-encoding.ps1
 
-      - name: Evidence consolidation py/ps1 parity (Windows PowerShell 5.1)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: ./skills/scripts/test-consolidate-evidence.ps1
+    - name: Evidence consolidation py/ps1 parity (Windows PowerShell 5.1)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: ./skills/scripts/test-consolidate-evidence.ps1
 
-      - name: Offline sample case contract (Windows PowerShell 5.1)
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          $scratch = Join-Path $env:RUNNER_TEMP ("reverse-skill-offline-" + [guid]::NewGuid().ToString('n'))
-          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
-          $sample = Join-Path $scratch 'sample.apk'
-          Set-Content -Path $sample -Value 'fixture' -Encoding ASCII
+    - name: Offline sample case contract (Windows PowerShell 5.1)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        $scratch = Join-Path $env:RUNNER_TEMP ("reverse-skill-offline-" + [guid]::NewGuid().ToString('n'))
+        New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+        $sample = Join-Path $scratch 'sample.apk'
+        Set-Content -Path $sample -Value 'fixture' -Encoding ASCII
 
+        ./skills/scripts/case-init.ps1 `
+          -Hint "offline apk" `
+          -CaseName "offline-sample" `
+          -ProjectRoot $scratch `
+          -Preset offline-sample `
+          -Sample $sample
+        $scope = Join-Path $scratch 'work/offline-sample/scope.md'
+        $raw = Get-Content $scope -Raw
+        if ($raw -notmatch '(?m)^- mode: offline\r?$') { throw 'offline sample did not keep offline network mode' }
+        if ($raw -notmatch '(?m)^- ready_for_act: true\r?$') { throw 'offline sample did not become ready_for_act' }
+        ./skills/scripts/case-guard.ps1 -CaseRoot (Join-Path $scratch 'work/offline-sample')
+
+        try {
           ./skills/scripts/case-init.ps1 `
-            -Hint "offline apk" `
-            -CaseName "offline-sample" `
+            -Hint "missing offline apk" `
+            -CaseName "missing-sample" `
             -ProjectRoot $scratch `
             -Preset offline-sample `
-            -Sample $sample
-          $scope = Join-Path $scratch 'work/offline-sample/scope.md'
-          $raw = Get-Content $scope -Raw
-          if ($raw -notmatch '(?m)^- mode: offline\r?$') { throw 'offline sample did not keep offline network mode' }
-          if ($raw -notmatch '(?m)^- ready_for_act: true\r?$') { throw 'offline sample did not become ready_for_act' }
-          ./skills/scripts/case-guard.ps1 -CaseRoot (Join-Path $scratch 'work/offline-sample')
+            -Sample (Join-Path $scratch 'missing.apk')
+          throw 'missing offline sample was accepted'
+        } catch {
+          if ($_.Exception.Message -eq 'missing offline sample was accepted') { throw }
+        }
 
-          try {
-            ./skills/scripts/case-init.ps1 `
-              -Hint "missing offline apk" `
-              -CaseName "missing-sample" `
-              -ProjectRoot $scratch `
-              -Preset offline-sample `
-              -Sample (Join-Path $scratch 'missing.apk')
-            throw 'missing offline sample was accepted'
-          } catch {
-            if ($_.Exception.Message -eq 'missing offline sample was accepted') { throw }
-          }
+        ./skills/scripts/case-init.ps1 `
+          -Hint "pending offline apk" `
+          -CaseName "force-auth" `
+          -ProjectRoot $scratch `
+          -Sample $sample
+        & powershell -NoProfile -ExecutionPolicy Bypass -File ./skills/scripts/case-guard.ps1 `
+          -CaseRoot (Join-Path $scratch 'work/force-auth') `
+          -Force
+        $guardExit = $LASTEXITCODE
+        if ($guardExit -eq 0) { throw '-Force bypassed auth.status hard gate' }
+        $global:LASTEXITCODE = 0
 
-          ./skills/scripts/case-init.ps1 `
-            -Hint "pending offline apk" `
-            -CaseName "force-auth" `
-            -ProjectRoot $scratch `
-            -Sample $sample
-          & powershell -NoProfile -ExecutionPolicy Bypass -File ./skills/scripts/case-guard.ps1 `
-            -CaseRoot (Join-Path $scratch 'work/force-auth') `
-            -Force
-          $guardExit = $LASTEXITCODE
-          if ($guardExit -eq 0) { throw '-Force bypassed auth.status hard gate' }
-          $global:LASTEXITCODE = 0
+    - name: Smoke (verify + parse + quick route)
+      shell: pwsh
+      run: ./skills/scripts/smoke.ps1
 
-      - name: Smoke (verify + parse + quick route)
-        shell: pwsh
-        run: ./skills/scripts/smoke.ps1
+    - name: INDEX.md up-to-date check
+      shell: pwsh
+      run: ./skills/scripts/extract-summaries.ps1 -Check
 
-      - name: INDEX.md up-to-date check
-        shell: pwsh
-        run: ./skills/scripts/extract-summaries.ps1 -Check
+    - name: All JSON manifests valid
+      shell: pwsh
+      run: |
+        Get-Content skills/scripts/bootstrap-manifest.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
+        Get-Content kali/scripts/bootstrap-manifest.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
+        Get-Content skills/config/routing.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
+        Get-Content skills/tests/routing-benchmark.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
+        Get-Content plugins/reverse-skill/.codex-plugin/plugin.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
+        Write-Host "All JSON valid"
 
-      - name: All JSON manifests valid
-        shell: pwsh
-        run: |
-          Get-Content skills/scripts/bootstrap-manifest.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
-          Get-Content kali/scripts/bootstrap-manifest.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
-          Get-Content skills/config/routing.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
-          Get-Content skills/tests/routing-benchmark.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
-          Get-Content plugins/reverse-skill/.codex-plugin/plugin.json -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
-          Write-Host "All JSON valid"
+    - name: Doc fact tables vs manifest (verify-doc-facts)
+      shell: pwsh
+      run: ./skills/scripts/verify-doc-facts.ps1
 
-      - name: Doc fact tables vs manifest (verify-doc-facts)
-        shell: pwsh
-        run: ./skills/scripts/verify-doc-facts.ps1
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
 
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   sh-syntax:
     name: shell script syntax check
     runs-on: ubuntu-latest
     steps:
-      - uses: crashappsec/action-checkout@main
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          lfs: false
-      - name: Assert instrumentation is live
-        continue-on-error: true
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-      - name: bash -n all .sh
-        shell: bash
-        run: |
-          set -e
-          while IFS= read -r f; do
-            bash -n "$f"
-            echo "syntax OK: $f"
-          done < <(git ls-files '*.sh')
+    - uses: crashappsec/action-checkout@main
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        lfs: false
+    - name: bash -n all .sh
+      shell: bash
+      run: |
+        set -e
+        while IFS= read -r f; do
+          bash -n "$f"
+          echo "syntax OK: $f"
+        done < <(git ls-files '*.sh')
 
-      - name: Client-neutral bootstrap/discovery (Bash)
-        shell: bash
-        run: bash skills/scripts/test-client-neutral-bootstrap.sh
+    - name: Client-neutral bootstrap/discovery (Bash)
+      shell: bash
+      run: bash skills/scripts/test-client-neutral-bootstrap.sh
 
-      - name: Structured routing parity (Bash)
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash skills/scripts/test-routing.sh
-          bash skills/scripts/test-bootstrap-manifest.sh
-          bash skills/scripts/test-bash-workflow.sh
+    - name: Structured routing parity (Bash)
+      shell: bash
+      run: |
+        set -euo pipefail
+        bash skills/scripts/test-routing.sh
+        bash skills/scripts/test-bootstrap-manifest.sh
+        bash skills/scripts/test-bash-workflow.sh
 
-          scratch="$(mktemp -d)"
-          trap 'rm -rf "$scratch"' EXIT
+        scratch="$(mktemp -d)"
+        trap 'rm -rf "$scratch"' EXIT
 
-          # Fresh Linux journey: no pwsh required, artifacts stay in caller project.
-          caller="$scratch/caller-project"
-          mkdir -p "$caller"
-          printf 'fixture' > "$scratch/sample.apk"
-          (
-            cd "$caller"
-            bash "$GITHUB_WORKSPACE/skills/scripts/master-route.sh" --hint "offline apk"
-            bash "$GITHUB_WORKSPACE/skills/scripts/case-init.sh" \
-              --hint "offline apk" \
-              --case-name "caller-default" \
-              --preset offline-sample \
-              --sample "$scratch/sample.apk"
-          )
-          test -f "$caller/work/caller-default/scope.md"
-          grep -Eq '^- project_root: .*/caller-project$' "$caller/work/caller-default/scope.md"
-          grep -Eq '^- mode: offline$' "$caller/work/caller-default/scope.md"
-          grep -Eq '^- ready_for_act: true$' "$caller/work/caller-default/scope.md"
-          bash skills/scripts/case-guard.sh --case-root "$caller/work/caller-default"
-          test ! -e "$GITHUB_WORKSPACE/work/caller-default"
+        # Fresh Linux journey: no pwsh required, artifacts stay in caller project.
+        caller="$scratch/caller-project"
+        mkdir -p "$caller"
+        printf 'fixture' > "$scratch/sample.apk"
+        (
+          cd "$caller"
+          bash "$GITHUB_WORKSPACE/skills/scripts/master-route.sh" --hint "offline apk"
+          bash "$GITHUB_WORKSPACE/skills/scripts/case-init.sh" \
+            --hint "offline apk" \
+            --case-name "caller-default" \
+            --preset offline-sample \
+            --sample "$scratch/sample.apk"
+        )
+        test -f "$caller/work/caller-default/scope.md"
+        grep -Eq '^- project_root: .*/caller-project$' "$caller/work/caller-default/scope.md"
+        grep -Eq '^- mode: offline$' "$caller/work/caller-default/scope.md"
+        grep -Eq '^- ready_for_act: true$' "$caller/work/caller-default/scope.md"
+        bash skills/scripts/case-guard.sh --case-root "$caller/work/caller-default"
+        test ! -e "$GITHUB_WORKSPACE/work/caller-default"
 
-          if bash skills/scripts/case-init.sh \
-              --hint "missing offline apk" \
-              --case-name "missing-sample" \
-              --project-root "$caller" \
-              --preset offline-sample \
-              --sample "$scratch/missing.apk"; then
-            echo "missing offline sample was accepted" >&2
-            exit 1
-          fi
+        if bash skills/scripts/case-init.sh \
+            --hint "missing offline apk" \
+            --case-name "missing-sample" \
+            --project-root "$caller" \
+            --preset offline-sample \
+            --sample "$scratch/missing.apk"; then
+          echo "missing offline sample was accepted" >&2
+          exit 1
+        fi
 
-          # Compatibility: legacy --package-root still pins the work root.
-          bash skills/scripts/case-init.sh \
+        # Compatibility: legacy --package-root still pins the work root.
+        bash skills/scripts/case-init.sh \
+          --hint "authorized web review" \
+          --case-name "network-default" \
+          --package-root "$scratch/project" \
+          --auth-granted \
+          --target-url "https://example.test/"
+        grep -Eq '^- mode: authorized_target_only$' "$scratch/project/work/network-default/scope.md"
+        grep -Eq '^- ready_for_act: true$' "$scratch/project/work/network-default/scope.md"
+        bash skills/scripts/case-guard.sh --case-root "$scratch/project/work/network-default"
+
+        if bash skills/scripts/case-init.sh \
+            --hint "offline apk" \
+            --case-name "../case-escape" \
+            --package-root "$scratch/project" \
+            --preset offline-sample \
+            --sample "$scratch/sample.apk"; then
+          echo "case-init accepted an unsafe case name" >&2
+          exit 1
+        fi
+
+        if bash skills/scripts/case-init.sh \
             --hint "authorized web review" \
-            --case-name "network-default" \
+            --case-name "invalid-network" \
             --package-root "$scratch/project" \
             --auth-granted \
-            --target-url "https://example.test/"
-          grep -Eq '^- mode: authorized_target_only$' "$scratch/project/work/network-default/scope.md"
-          grep -Eq '^- ready_for_act: true$' "$scratch/project/work/network-default/scope.md"
-          bash skills/scripts/case-guard.sh --case-root "$scratch/project/work/network-default"
+            --network-profile "internet" \
+            --target-url "https://example.test/"; then
+          echo "case-init accepted an unsupported network profile" >&2
+          exit 1
+        fi
 
-          if bash skills/scripts/case-init.sh \
-              --hint "offline apk" \
-              --case-name "../case-escape" \
-              --package-root "$scratch/project" \
-              --preset offline-sample \
-              --sample "$scratch/sample.apk"; then
-            echo "case-init accepted an unsafe case name" >&2
-            exit 1
-          fi
+        bash skills/scripts/case-init.sh \
+          --hint "authorized web review" \
+          --case-name "uppercase-network" \
+          --package-root "$scratch/project" \
+          --auth-granted \
+          --network-profile "AUTHORIZED_TARGET_ONLY" \
+          --target-url "https://example.test/"
+        grep -Eq '^- mode: authorized_target_only$' "$scratch/project/work/uppercase-network/scope.md"
 
-          if bash skills/scripts/case-init.sh \
-              --hint "authorized web review" \
-              --case-name "invalid-network" \
-              --package-root "$scratch/project" \
-              --auth-granted \
-              --network-profile "internet" \
-              --target-url "https://example.test/"; then
-            echo "case-init accepted an unsupported network profile" >&2
-            exit 1
-          fi
+        bash skills/scripts/case-init.sh \
+          --hint "pending review" \
+          --case-name "guard-section" \
+          --package-root "$scratch/project" \
+          --target-url "https://example.test/"
+        cat >> "$scratch/project/work/guard-section/scope.md" <<'FAKE_FIELDS'
 
-          bash skills/scripts/case-init.sh \
-            --hint "authorized web review" \
-            --case-name "uppercase-network" \
-            --package-root "$scratch/project" \
-            --auth-granted \
-            --network-profile "AUTHORIZED_TARGET_ONLY" \
-            --target-url "https://example.test/"
-          grep -Eq '^- mode: authorized_target_only$' "$scratch/project/work/uppercase-network/scope.md"
+        ## notes
+        - status: granted
+        - mode: authorized_target_only
+        - ready_for_act: true
+        FAKE_FIELDS
+        if bash skills/scripts/case-guard.sh --case-root "$scratch/project/work/guard-section"; then
+          echo "case-guard accepted fields outside their contract sections" >&2
+          exit 1
+        fi
 
-          bash skills/scripts/case-init.sh \
-            --hint "pending review" \
-            --case-name "guard-section" \
-            --package-root "$scratch/project" \
-            --target-url "https://example.test/"
-          cat >> "$scratch/project/work/guard-section/scope.md" <<'FAKE_FIELDS'
+        # --force is compatibility-only and must not bypass the hard auth gate.
+        (
+          cd "$caller"
+          bash "$GITHUB_WORKSPACE/skills/scripts/case-init.sh" \
+            --hint "pending offline apk" \
+            --case-name "force-auth" \
+            --sample "$scratch/sample.apk"
+        )
+        if bash skills/scripts/case-guard.sh --case-root "$caller/work/force-auth" --force; then
+          echo "case-guard --force bypassed auth.status hard gate" >&2
+          exit 1
+        fi
 
-          ## notes
-          - status: granted
-          - mode: authorized_target_only
-          - ready_for_act: true
-          FAKE_FIELDS
-          if bash skills/scripts/case-guard.sh --case-root "$scratch/project/work/guard-section"; then
-            echo "case-guard accepted fields outside their contract sections" >&2
-            exit 1
-          fi
-
-          # --force is compatibility-only and must not bypass the hard auth gate.
-          (
-            cd "$caller"
-            bash "$GITHUB_WORKSPACE/skills/scripts/case-init.sh" \
-              --hint "pending offline apk" \
-              --case-name "force-auth" \
-              --sample "$scratch/sample.apk"
-          )
-          if bash skills/scripts/case-guard.sh --case-root "$caller/work/force-auth" --force; then
-            echo "case-guard --force bypassed auth.status hard gate" >&2
-            exit 1
-          fi
-
-      - name: PowerShell syntax check (PSParser, all tracked .ps1)
-        shell: pwsh
-        run: |
-          $files = git ls-files '*.ps1'
-          if (-not $files) { Write-Host 'No .ps1 files tracked'; exit 0 }
-          $failed = 0
-          foreach ($f in $files) {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$tokens, [ref]$errors) | Out-Null
-            if ($errors -and $errors.Count -gt 0) {
-              $failed++
-              Write-Host "::error file=$f::$($errors.Count) parse error(s)"
-              foreach ($e in $errors) {
-                Write-Host ("  L{0}:{1} {2}" -f $e.Extent.StartLineNumber, $e.Extent.StartColumnNumber, $e.Message)
-              }
-            } else {
-              Write-Host "syntax OK: $f"
+    - name: PowerShell syntax check (PSParser, all tracked .ps1)
+      shell: pwsh
+      run: |
+        $files = git ls-files '*.ps1'
+        if (-not $files) { Write-Host 'No .ps1 files tracked'; exit 0 }
+        $failed = 0
+        foreach ($f in $files) {
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f), [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors -and $errors.Count -gt 0) {
+            $failed++
+            Write-Host "::error file=$f::$($errors.Count) parse error(s)"
+            foreach ($e in $errors) {
+              Write-Host ("  L{0}:{1} {2}" -f $e.Extent.StartLineNumber, $e.Extent.StartColumnNumber, $e.Message)
             }
+          } else {
+            Write-Host "syntax OK: $f"
           }
-          if ($failed -gt 0) { exit 1 }
+        }
+        if ($failed -gt 0) { exit 1 }
 
-      - name: Non-ASCII .ps1 must carry a UTF-8 BOM (Windows PowerShell 5.1 safety)
-        shell: pwsh
-        run: |
-          # PS 5.1 parses a BOM-less .ps1 as the system ANSI codepage, garbling
-          # Chinese/em-dash string literals. Every non-ASCII script MUST have a BOM.
-          $files = git ls-files '*.ps1'
-          if (-not $files) { Write-Host 'No .ps1 files tracked'; exit 0 }
-          $bad = 0
-          foreach ($f in $files) {
-            $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $f))
-            $hasNonAscii = $false
-            foreach ($b in $bytes) { if ($b -ge 0x80) { $hasNonAscii = $true; break } }
-            if (-not $hasNonAscii) { continue }
-            $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
-            if ($hasBom) {
-              Write-Host "BOM OK: $f"
-            } else {
-              $bad++
-              Write-Host "::error file=$f::non-ASCII .ps1 lacks a UTF-8 BOM; add one so literals survive Windows PowerShell 5.1"
-            }
+    - name: Non-ASCII .ps1 must carry a UTF-8 BOM (Windows PowerShell 5.1 safety)
+      shell: pwsh
+      run: |
+        # PS 5.1 parses a BOM-less .ps1 as the system ANSI codepage, garbling
+        # Chinese/em-dash string literals. Every non-ASCII script MUST have a BOM.
+        $files = git ls-files '*.ps1'
+        if (-not $files) { Write-Host 'No .ps1 files tracked'; exit 0 }
+        $bad = 0
+        foreach ($f in $files) {
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $f))
+          $hasNonAscii = $false
+          foreach ($b in $bytes) { if ($b -ge 0x80) { $hasNonAscii = $true; break } }
+          if (-not $hasNonAscii) { continue }
+          $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+          if ($hasBom) {
+            Write-Host "BOM OK: $f"
+          } else {
+            $bad++
+            Write-Host "::error file=$f::non-ASCII .ps1 lacks a UTF-8 BOM; add one so literals survive Windows PowerShell 5.1"
           }
-          if ($bad -gt 0) { Write-Host "$bad file(s) need a UTF-8 BOM"; exit 1 }
-          Write-Host 'All non-ASCII .ps1 carry a UTF-8 BOM'
+        }
+        if ($bad -gt 0) { Write-Host "$bad file(s) need a UTF-8 BOM"; exit 1 }
+        Write-Host 'All non-ASCII .ps1 carry a UTF-8 BOM'
 
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   leak-scan:
     name: field-journal leak scan
     runs-on: ubuntu-latest
     steps:
-      - uses: crashappsec/action-checkout@main
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          lfs: false
-      - name: Assert instrumentation is live
-        continue-on-error: true
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-      - name: Scan field-journal for un-anonymized secrets
-        shell: pwsh
-        run: ./skills/scripts/scan-leaks.ps1 -Path skills/field-journal
+    - uses: crashappsec/action-checkout@main
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        lfs: false
+    - name: Scan field-journal for un-anonymized secrets
+      shell: pwsh
+      run: ./skills/scripts/scan-leaks.ps1 -Path skills/field-journal
 
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   case-contract:
     name: case contract test (ctf-demo)
     runs-on: ubuntu-latest
     steps:
-      - uses: crashappsec/action-checkout@main
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          lfs: false
-      - name: Assert instrumentation is live
-        continue-on-error: true
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-      - name: Review examples/ctf-demo under strict contract
-        shell: bash
-        run: python3 skills/case-review/scripts/review_case.py examples/ctf-demo --verify-hashes --strict
+    - uses: crashappsec/action-checkout@main
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        lfs: false
+    - name: Review examples/ctf-demo under strict contract
+      shell: bash
+      run: python3 skills/case-review/scripts/review_case.py examples/ctf-demo --verify-hashes --strict
 
-      - name: review_case.py unit tests
-        shell: bash
-        run: python3 skills/case-review/tests/test_review_case.py
+    - name: review_case.py unit tests
+      shell: bash
+      run: python3 skills/case-review/tests/test_review_case.py
 
-      - name: Internal Markdown links resolve
-        shell: bash
-        run: python3 skills/scripts/verify-doc-links.py
+    - name: Internal Markdown links resolve
+      shell: bash
+      run: python3 skills/scripts/verify-doc-links.py
 
-      - name: Repository executable/reference boundaries
-        continue-on-error: true   # racecar: scan/report/push step, must not fail the build
-        shell: bash
-        run: python3 skills/scripts/verify-repository-security.py
+    - name: Repository executable/reference boundaries
+      continue-on-error: true     # racecar: scan/report/push step, must not fail the build
+      shell: bash
+      run: python3 skills/scripts/verify-repository-security.py
 
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   gradle-wrapper-validation:
     name: Gradle wrapper validation
     runs-on: ubuntu-latest
     steps:
-      - uses: crashappsec/action-checkout@main
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          lfs: false
-      - name: Assert instrumentation is live
-        continue-on-error: true
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-      - uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+    - uses: crashappsec/action-checkout@main
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        lfs: false
+    - uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb   # v6.3.0
 
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
   version-check:
     name: version consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: crashappsec/action-checkout@main
-        with:
-          chalk: ${{ env.CHALK_ON }}
-          profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
-          lfs: false
-      - name: Assert instrumentation is live
-        continue-on-error: true
-        if: env.CHALK_ON == 'true'
-        run: |
-          test -n "${CURIOSITY_ROOT:-}" || { echo "::error::CURIOSITY_ROOT unset - observables never installed"; exit 1; }
-      - name: VERSION matches latest CHANGELOG release
-        continue-on-error: true   # racecar: scan/report/push step, must not fail the build
-        shell: pwsh
-        run: |
-          $v = (Get-Content VERSION -Raw).Trim()
-          $cl = Get-Content CHANGELOG.md -Raw
-          $m = [regex]::Match($cl, '(?m)^## \[(\d+\.\d+\.\d+)\]')
-          if (-not $m.Success) { Write-Error 'No version header found in CHANGELOG'; exit 1 }
-          $latest = $m.Groups[1].Value
-          if ($v -ne $latest) {
-            Write-Error "VERSION ($v) does not match latest CHANGELOG release ($latest)"
-            exit 1
-          }
-          Write-Host "Version OK: $v"
+    - uses: crashappsec/action-checkout@main
+      with:
+        chalk: ${{ env.CHALK_ON }}
+        profile: ${{ inputs.profile || 'curiosity-tests-racecar' }}
+        lfs: false
+    - name: VERSION matches latest CHANGELOG release
+      continue-on-error: true     # racecar: scan/report/push step, must not fail the build
+      shell: pwsh
+      run: |
+        $v = (Get-Content VERSION -Raw).Trim()
+        $cl = Get-Content CHANGELOG.md -Raw
+        $m = [regex]::Match($cl, '(?m)^## \[(\d+\.\d+\.\d+)\]')
+        if (-not $m.Success) { Write-Error 'No version header found in CHANGELOG'; exit 1 }
+        $latest = $m.Groups[1].Value
+        if ($v -ne $latest) {
+          Write-Error "VERSION ($v) does not match latest CHANGELOG release ($latest)"
+          exit 1
+        }
+        Write-Host "Version OK: $v"
+    - name: Check observables and crashes
+      if: always() && env.CHALK_ON == 'true'
+      shell: bash
+      run: |
+        set -uo pipefail
+        root="${CURIOSITY_ROOT:-}"
+        home="${CURIOSITY_HOME:-/mnt/curiosity}"
+        obs="${home}/observables"
+        fail=0
+
+        echo "::group::curiosity layout"
+        echo "CURIOSITY_ROOT=${root:-<unset>}"
+        echo "CURIOSITY_HOME=${home}"
+        ls -la "${obs}" 2>/dev/null || echo "no observables dir at ${obs}"
+        echo "::endgroup::"
+
+        # Observables for THIS run+attempt. The prefix matters: a stale file from an
+        # earlier run on the same mount would otherwise pass.
+        prefix="${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+        shopt -s nullglob
+        mine=("${obs}/${prefix}"*)
+        if [ ${#mine[@]} -eq 0 ]; then
+          mine=("${obs}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-observables"*)
+        fi
+        if [ ${#mine[@]} -eq 0 ]; then
+          echo "::error::no observables for run ${prefix} in ${obs} - instrumentation produced nothing"
+          fail=1
+        else
+          echo "observables present: ${#mine[@]} file(s)"
+          printf '  %s\n' "${mine[@]}"
+        fi
+
+        for f in "${mine[@]}"; do
+          case "$f" in
+            *.jsonl|*.json|*.combined)
+              if ! jq --slurp "." "$f" > /dev/null 2>&1; then
+                echo "::error::observables do not parse: $f"
+                fail=1
+              fi
+              ;;
+          esac
+        done
+
+        # Crash thresholds copied from check-run: a few null frames are noise, more than
+        # five is a stack walk into nothing.
+        for f in "${root}"/log/co-host*.log "${home}"/log/co-host*.log; do
+          [ -f "$f" ] || continue
+          echo "Asserting that there is no crash in $f"
+          if [ "$(grep -c 'p 00000000' "$f" 2>/dev/null || echo 0)" -gt 5 ] \
+            || [ "$(grep -E -c 'FATAL: Uncaught signal|Address not mapped at|RAX 0x.*RBX 0x' "$f" 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "::error::crash signature in $f"
+            grep -E 'FATAL: Uncaught signal|Address not mapped at' "$f" | head -5 || true
+            fail=1
+          fi
+        done
+
+        cores=("${root}"/coredump.* "${home}"/coredump.*)
+        if [ ${#cores[@]} -gt 0 ]; then
+          echo "::error::coredump present: ${cores[*]}"
+          fail=1
+        fi
+
+        for f in "${root}"/runc.log "${root}"/runc.global.log \
+                 "${home}"/runc.log "${home}"/runc.global.log; do
+          [ -f "$f" ] || continue
+          if grep -q '^E:' "$f"; then
+            echo "::error::error in $f"
+            grep '^E:' "$f" | head -5
+            fail=1
+          fi
+        done
+
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::instrumentation check FAILED"
+          exit 1
+        fi
+        echo "instrumentation check passed"
